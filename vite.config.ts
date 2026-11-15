@@ -7,6 +7,7 @@ export default defineConfig(({ command }) => {
   const isBuild = command === 'build';
 
   return {
+    base: '/',
     plugins: [react(), tailwindcss()],
     define: isBuild
       ? {
@@ -19,6 +20,7 @@ export default defineConfig(({ command }) => {
       },
     },
     build: {
+      outDir: 'dist',
       target: 'es2020',
       cssMinify: true,
     },
