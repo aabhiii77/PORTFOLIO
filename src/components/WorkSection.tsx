@@ -1,9 +1,10 @@
+import { memo } from 'react';
 import { PROJECTS, PROJECTS_SECTION_META } from '../data/portfolioData';
 import { useRevealOnScroll } from '../hooks/useRevealOnScroll';
 import { Reveal } from './Reveal';
 import { ProjectGrid } from './work/ProjectGrid';
 
-export function WorkSection() {
+export const WorkSection = memo(function WorkSection() {
   const { ref, revealed } = useRevealOnScroll<HTMLElement>();
 
   return (
@@ -36,4 +37,4 @@ export function WorkSection() {
       </div>
     </section>
   );
-}
+});

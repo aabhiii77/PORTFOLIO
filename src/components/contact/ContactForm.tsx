@@ -1,29 +1,24 @@
-import { useRef, useState, type FormEvent } from 'react';
-import { ArrowRight, Check, Loader2 } from 'lucide-react';
-import { CONTACT_SECTION_META } from '../../data/portfolioData';
+import { useMemo, useRef, useState, type FormEvent } from 'react';
+import { ArrowRight, Check, Loader2, Mail } from 'lucide-react';
+import {
+  buildMailtoFallbackUrl,
+  getContactEndpoint,
+  parseContactApiResponse,
+  PORTFOLIO_DIRECT_MAILTO,
+  PORTFOLIO_RECIPIENT_EMAIL,
+  type ContactFormValues,
+} from '../../utils/contactApi';
 import { Reveal } from '../Reveal';
 
 interface ContactFormProps {
   revealed: boolean;
 }
 
-interface FormValues {
-  name: string;
-  email: string;
-  subject: string;
-  message: string;
-  website: string;
-}
-
 type FieldName = 'name' | 'email' | 'subject' | 'message';
 type FieldErrors = Partial<Record<FieldName, string>>;
+type FormStatus = 'idle' | 'submitting' | 'success' | 'fallback';
 
-interface SubmissionState {
-  status: 'idle' | 'submitting' | 'success' | 'error';
-  feedback: string;
-}
-
-const INITIAL_VALUES: FormValues = {
+const INITIAL_VALUES: ContactFormValues = {
   name: '',
   email: '',
   subject: '',
@@ -32,8 +27,9 @@ const INITIAL_VALUES: FormValues = {
 };
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+const REQUEST_TIMEOUT_MS = 20000;
 
-function validateClientFields(values: FormValues): FieldErrors {
+function validateClientFields(values: ContactFormValues): FieldErrors {
   const errors: FieldErrors = {};
   const trimmedName = values.name.trim();
   const trimmedEmail = values.email.trim();
@@ -69,26 +65,20 @@ function validateClientFields(values: FormValues): FieldErrors {
   return errors;
 }
 
-function getContactEndpoint(): string {
-  const baseUrl = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.trim();
-  if (!baseUrl) {
-    return '/api/contact';
-  }
-  return `${baseUrl.replace(/\/+$/, '')}/api/contact`;
-}
-
 export function ContactForm({ revealed }: ContactFormProps) {
-  const [values, setValues] = useState<FormValues>(INITIAL_VALUES);
+  const [values, setValues] = useState<ContactFormValues>(INITIAL_VALUES);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
-  const [submission, setSubmission] = useState<SubmissionState>({
-    status: 'idle',
-    feedback: '',
-  });
+  const [status, setStatus] = useState<FormStatus>('idle');
   const submitLockRef = useRef(false);
 
-  const isSubmitting = submission.status === 'submitting';
+  const isSubmitting = status === 'submitting';
 
-  const handleFieldChange = (field: keyof FormValues, nextValue: string) => {
+  const fallbackMailtoUrl = useMemo(
+    () => buildMailtoFallbackUrl(values),
+    [values.name, values.email, values.subject, values.message]
+  );
+
+  const handleFieldChange = (field: keyof ContactFormValues, nextValue: string) => {
     setValues((prev) => ({ ...prev, [field]: nextValue }));
 
     if (field !== 'website' && fieldErrors[field]) {
@@ -99,8 +89,8 @@ export function ContactForm({ revealed }: ContactFormProps) {
       });
     }
 
-    if (submission.status === 'success' || submission.status === 'error') {
-      setSubmission({ status: 'idle', feedback: '' });
+    if (status === 'success') {
+      setStatus('idle');
     }
   };
 
@@ -113,22 +103,24 @@ export function ContactForm({ revealed }: ContactFormProps) {
     const clientErrors = validateClientFields(values);
     if (Object.keys(clientErrors).length > 0) {
       setFieldErrors(clientErrors);
-      setSubmission({
-        status: 'error',
-        feedback: 'Please check the highlighted fields and try again.',
-      });
+      setStatus('idle');
       return;
     }
 
     submitLockRef.current = true;
     setFieldErrors({});
-    setSubmission({ status: 'submitting', feedback: '' });
+    setStatus('submitting');
+
+    const endpoint = getContactEndpoint();
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
     try {
-      const response = await fetch(getContactEndpoint(), {
+      const response = await fetch(endpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          Accept: 'application/json',
         },
         body: JSON.stringify({
           name: values.name,
@@ -137,65 +129,50 @@ export function ContactForm({ revealed }: ContactFormProps) {
           message: values.message,
           website: values.website,
         }),
+        signal: controller.signal,
       });
 
-      let payload: {
-        status?: string;
-        message?: string;
-        detail?: string;
-        field_errors?: Record<string, string>;
-      } = {};
+      const rawBody = await response.text();
+      const parsed = parseContactApiResponse(
+        response.status,
+        response.ok,
+        response.headers.get('content-type'),
+        rawBody
+      );
 
-      try {
-        payload = (await response.json()) as typeof payload;
-      } catch {
-        payload = {};
-      }
-
-      if (!response.ok) {
-        if (response.status === 422 && payload.field_errors) {
-          const nextErrors: FieldErrors = {};
-          (['name', 'email', 'subject', 'message'] as const).forEach((key) => {
-            const errMsg = payload.field_errors?.[key];
-            if (errMsg) {
-              nextErrors[key] = errMsg;
-            }
-          });
-          setFieldErrors(nextErrors);
-        }
-
-        setSubmission({
-          status: 'error',
-          feedback:
-            payload.detail ||
-            'Unable to send your message right now. Please try again or reach out directly via email.',
+      if (parsed.kind === 'validation_error' && parsed.fieldErrors) {
+        const nextErrors: FieldErrors = {};
+        (['name', 'email', 'subject', 'message'] as const).forEach((key) => {
+          const errMsg = parsed.fieldErrors?.[key];
+          if (errMsg) {
+            nextErrors[key] = errMsg;
+          }
         });
+        setFieldErrors(nextErrors);
+        setStatus('idle');
         return;
       }
 
-      if (payload.status !== 'sent') {
-        setSubmission({
-          status: 'error',
-          feedback:
-            'Unexpected server response while sending your message. Please reach out directly via email.',
-        });
+      if (parsed.kind === 'success') {
+        setValues(INITIAL_VALUES);
+        setFieldErrors({});
+        setStatus('success');
         return;
       }
 
-      setValues(INITIAL_VALUES);
-      setFieldErrors({});
-      setSubmission({
-        status: 'success',
-        feedback:
-          payload.message || "Thank you — your message has been sent to Aayushi's inbox.",
+      console.warn('Contact backend unavailable; switching to email app fallback', {
+        code: parsed.diagnosticCode,
+        status: response.status,
       });
-    } catch {
-      setSubmission({
-        status: 'error',
-        feedback:
-          'Could not reach the server to send your message. Please check your connection or email directly.',
+      setStatus('fallback');
+    } catch (error) {
+      const isTimeout = error instanceof DOMException && error.name === 'AbortError';
+      console.warn('Contact backend request failed; switching to email app fallback', {
+        reason: isTimeout ? 'TIMEOUT' : 'NETWORK_UNREACHABLE',
       });
+      setStatus('fallback');
     } finally {
+      window.clearTimeout(timeoutId);
       submitLockRef.current = false;
     }
   };
@@ -205,7 +182,7 @@ export function ContactForm({ revealed }: ContactFormProps) {
 
   const getFieldBorderClass = (hasError: boolean) =>
     hasError
-      ? 'border-[var(--color-vermilion)] focus-visible:border-[var(--color-vermilion)] focus-visible:ring-1 focus-visible:ring-[var(--color-vermilion)]/25'
+      ? 'border-[var(--color-orange)] focus-visible:border-[var(--color-orange)] focus-visible:ring-1 focus-visible:ring-[var(--color-orange)]/25'
       : 'border-[var(--border-hairline)] hover:border-[var(--color-espresso)]/45 focus-visible:border-[var(--color-blue-deep)] focus-visible:ring-1 focus-visible:ring-[var(--color-blue-deep)]/25';
 
   return (
@@ -231,7 +208,7 @@ export function ContactForm({ revealed }: ContactFormProps) {
           </span>
         </div>
 
-        {/* Hidden honeypot field for basic automated spam filtering */}
+        {/* Hidden honeypot field for automated spam protection */}
         <div
           aria-hidden="true"
           className="absolute -left-[9999px] w-px h-px overflow-hidden opacity-0 pointer-events-none"
@@ -274,7 +251,7 @@ export function ContactForm({ revealed }: ContactFormProps) {
             {fieldErrors.name && (
               <p
                 id="contact-name-error"
-                className="mt-1.5 text-xs text-[var(--color-vermilion)]"
+                className="mt-1.5 text-xs text-[var(--color-espresso)]"
               >
                 {fieldErrors.name}
               </p>
@@ -295,7 +272,7 @@ export function ContactForm({ revealed }: ContactFormProps) {
               required
               maxLength={254}
               autoComplete="email"
-              placeholder="you@example.com"
+              placeholder="Your email address"
               disabled={isSubmitting}
               value={values.email}
               onChange={(e) => handleFieldChange('email', e.target.value)}
@@ -306,7 +283,7 @@ export function ContactForm({ revealed }: ContactFormProps) {
             {fieldErrors.email && (
               <p
                 id="contact-email-error"
-                className="mt-1.5 text-xs text-[var(--color-vermilion)]"
+                className="mt-1.5 text-xs text-[var(--color-espresso)]"
               >
                 {fieldErrors.email}
               </p>
@@ -327,7 +304,7 @@ export function ContactForm({ revealed }: ContactFormProps) {
             type="text"
             required
             maxLength={160}
-            placeholder="Project inquiry or collaboration"
+            placeholder="What is this about?"
             disabled={isSubmitting}
             value={values.subject}
             onChange={(e) => handleFieldChange('subject', e.target.value)}
@@ -338,7 +315,7 @@ export function ContactForm({ revealed }: ContactFormProps) {
           {fieldErrors.subject && (
             <p
               id="contact-subject-error"
-              className="mt-1.5 text-xs text-[var(--color-vermilion)]"
+              className="mt-1.5 text-xs text-[var(--color-espresso)]"
             >
               {fieldErrors.subject}
             </p>
@@ -358,7 +335,7 @@ export function ContactForm({ revealed }: ContactFormProps) {
             required
             rows={4}
             maxLength={5000}
-            placeholder="Share a brief note about your project, idea, or question..."
+            placeholder="Write your message here..."
             disabled={isSubmitting}
             value={values.message}
             onChange={(e) => handleFieldChange('message', e.target.value)}
@@ -371,14 +348,14 @@ export function ContactForm({ revealed }: ContactFormProps) {
           {fieldErrors.message && (
             <p
               id="contact-message-error"
-              className="mt-1.5 text-xs text-[var(--color-vermilion)]"
+              className="mt-1.5 text-xs text-[var(--color-espresso)]"
             >
               {fieldErrors.message}
             </p>
           )}
         </div>
 
-        {submission.status === 'success' && (
+        {status === 'success' && (
           <div
             role="status"
             aria-live="polite"
@@ -388,26 +365,42 @@ export function ContactForm({ revealed }: ContactFormProps) {
               className="w-4 h-4 text-[var(--color-blue-deep)] shrink-0 mt-0.5"
               strokeWidth={2.25}
             />
-            <span>{submission.feedback}</span>
+            <span>Thank you! Your message has been sent successfully.</span>
           </div>
         )}
 
-        {submission.status === 'error' && (
+        {status === 'fallback' && (
           <div
-            role="alert"
-            aria-live="assertive"
-            className="mt-5 border-l-[2px] border-[var(--color-vermilion)] bg-[var(--color-cream-tonal)]/55 px-4 py-3 text-sm text-[var(--color-espresso-deep)]"
+            role="status"
+            aria-live="polite"
+            data-testid="contact-fallback-panel"
+            className="mt-5 border border-[var(--border-hairline)] border-l-[2px] border-l-[var(--color-blue-deep)] bg-[var(--color-cream-tonal)]/55 p-4 sm:p-5 text-sm text-[var(--color-espresso-deep)]"
           >
-            <p>{submission.feedback}</p>
-            <p className="mt-1.5 text-xs text-[var(--color-espresso)]">
-              Direct alternative:{' '}
-              <a
-                href={CONTACT_SECTION_META.emailHref}
-                className="font-medium text-[var(--color-orange)] underline underline-offset-4 hover:text-[var(--color-espresso-deep)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-orange)]"
-              >
-                aayushikoomar@gmail.com
-              </a>
+            <p className="leading-[1.55]">
+              Your message is ready. Continue through your email application to complete sending.
             </p>
+
+            <div className="mt-3.5 flex flex-wrap items-center gap-4">
+              <a
+                href={fallbackMailtoUrl}
+                className="group inline-flex items-center gap-2.5 bg-[var(--color-espresso-deep)] text-[var(--color-cream)] pl-4 pr-2.5 py-2 min-h-[44px] text-xs font-display font-semibold tracking-[0.1em] uppercase transition-[background-color,transform,translate,scale,box-shadow] duration-250 ease-[var(--ease-editorial)] hover:bg-[var(--color-espresso)] hover:-translate-y-[2px] hover:shadow-[0_8px_18px_rgba(29,15,10,0.14)] active:translate-y-0 active:scale-[0.98] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-orange)] whitespace-nowrap"
+              >
+                <span>OPEN EMAIL APP</span>
+                <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-[var(--color-orange)] text-[var(--color-cream)] transition-[transform,translate,background-color] duration-250 ease-[var(--ease-editorial)] group-hover:translate-x-0.5 group-hover:bg-[var(--color-orange-bright)]">
+                  <Mail className="w-3 h-3" strokeWidth={2.25} />
+                </span>
+              </a>
+
+              <span className="text-xs text-[var(--color-espresso)]">
+                Or email directly:{' '}
+                <a
+                  href={PORTFOLIO_DIRECT_MAILTO}
+                  className="font-medium text-[var(--color-cobalt)] underline underline-offset-4 hover:text-[var(--color-orange)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-orange)]"
+                >
+                  {PORTFOLIO_RECIPIENT_EMAIL}
+                </a>
+              </span>
+            </div>
           </div>
         )}
 
@@ -430,7 +423,7 @@ export function ContactForm({ revealed }: ContactFormProps) {
           <p className="text-[11px] text-[var(--color-espresso)]/65">
             Messages go straight to{' '}
             <span className="font-medium text-[var(--color-espresso)]">
-              aayushikoomar@gmail.com
+              {PORTFOLIO_RECIPIENT_EMAIL}
             </span>
           </p>
         </div>

@@ -23,18 +23,19 @@ export function useActiveSection(sectionIds: SectionId[]) {
     const pickMostVisible = () => {
       if (performance.now() < lockUntilRef.current) return;
 
-      const nearBottom =
-        window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 24;
+      const docEl = document.documentElement;
+      const nearBottom = window.innerHeight + window.scrollY >= docEl.scrollHeight - 24;
       if (nearBottom) {
         const lastId = sectionIds[sectionIds.length - 1];
         if (lastId) {
-          setActiveSection(lastId);
+          setActiveSection((prev) => (prev === lastId ? prev : lastId));
           return;
         }
       }
 
       if (window.scrollY < 48) {
-        setActiveSection(sectionIds[0] ?? 'home');
+        const firstId = sectionIds[0] ?? 'home';
+        setActiveSection((prev) => (prev === firstId ? prev : firstId));
         return;
       }
 
@@ -50,7 +51,8 @@ export function useActiveSection(sectionIds: SectionId[]) {
       }
 
       if (bestId && bestScore > 0) {
-        setActiveSection(bestId);
+        const nextId = bestId;
+        setActiveSection((prev) => (prev === nextId ? prev : nextId));
       }
     };
 
@@ -65,24 +67,32 @@ export function useActiveSection(sectionIds: SectionId[]) {
       {
         root: null,
         rootMargin: '-18% 0px -35% 0px',
-        threshold: [0, 0.1, 0.25, 0.5, 0.75, 1],
+        threshold: [0, 0.15, 0.4, 0.7],
       },
     );
 
     elements.forEach((el) => observer.observe(el));
 
+    let scrollRafId: number | null = null;
     const handleScroll = () => {
-      if (performance.now() < lockUntilRef.current) return;
+      if (scrollRafId !== null) return;
+      scrollRafId = requestAnimationFrame(() => {
+        scrollRafId = null;
+        if (performance.now() < lockUntilRef.current) return;
 
-      if (window.scrollY < 48) {
-        setActiveSection(sectionIds[0] ?? 'home');
-      } else if (
-        window.innerHeight + window.scrollY >=
-        document.documentElement.scrollHeight - 24
-      ) {
-        const lastId = sectionIds[sectionIds.length - 1];
-        if (lastId) setActiveSection(lastId);
-      }
+        if (window.scrollY < 48) {
+          const firstId = sectionIds[0] ?? 'home';
+          setActiveSection((prev) => (prev === firstId ? prev : firstId));
+        } else if (
+          window.innerHeight + window.scrollY >=
+          document.documentElement.scrollHeight - 24
+        ) {
+          const lastId = sectionIds[sectionIds.length - 1];
+          if (lastId) {
+            setActiveSection((prev) => (prev === lastId ? prev : lastId));
+          }
+        }
+      });
     };
 
     const handleHashChange = () => {
@@ -98,6 +108,7 @@ export function useActiveSection(sectionIds: SectionId[]) {
 
     return () => {
       observer.disconnect();
+      if (scrollRafId !== null) cancelAnimationFrame(scrollRafId);
       window.removeEventListener('scroll', handleScroll);
       window.removeEventListener('hashchange', handleHashChange);
     };

@@ -1,11 +1,44 @@
+import { lazy, memo, Suspense, useEffect } from 'react';
 import { CONTACT_CHANNELS } from '../data/portfolioData';
 import { useRevealOnScroll } from '../hooks/useRevealOnScroll';
-import { ContactForm } from './contact/ContactForm';
 import { ContactIntroduction } from './contact/ContactIntroduction';
 import { SocialLink } from './contact/SocialLink';
 
-export function ContactSection() {
+const loadContactForm = () =>
+  import('./contact/ContactForm').then((mod) => ({ default: mod.ContactForm }));
+
+const LazyContactForm = lazy(loadContactForm);
+
+function ContactFormPlaceholder() {
+  return (
+    <div
+      aria-hidden="true"
+      className="border border-[var(--border-hairline)] bg-[var(--color-cream)] p-6 sm:p-8 min-h-[452px] shadow-[0_8px_24px_rgba(29,15,10,0.03)]"
+    />
+  );
+}
+
+export const ContactSection = memo(function ContactSection() {
   const { ref, revealed } = useRevealOnScroll<HTMLElement>();
+
+  useEffect(() => {
+    const node = ref.current;
+    if (!node || typeof IntersectionObserver === 'undefined') {
+      void loadContactForm();
+      return;
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          void loadContactForm();
+          observer.disconnect();
+        }
+      },
+      { rootMargin: '360px 0px' },
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [ref]);
 
   return (
     <section
@@ -39,10 +72,12 @@ export function ContactSection() {
           </div>
 
           <div className="min-w-0 lg:pt-1">
-            <ContactForm revealed={revealed} />
+            <Suspense fallback={<ContactFormPlaceholder />}>
+              <LazyContactForm revealed={revealed} />
+            </Suspense>
           </div>
         </div>
       </div>
     </section>
   );
-}
+});

@@ -20,6 +20,11 @@ export const HERO_PROFILE = {
   introduction:
     "I'm Aayushi Kumar, a second-year B.Tech student specialising in Artificial Intelligence and Machine Learning. I enjoy exploring technology through practical projects and building useful digital solutions.",
   portraitUrl: '/assets/aistudio/aayushi_portrait_upright.jpeg',
+  portraitSrcSet:
+    '/assets/aistudio/aayushi_portrait_upright-480.webp 480w, /assets/aistudio/aayushi_portrait_upright-800.webp 800w, /assets/aistudio/aayushi_portrait_upright-1280.webp 1280w',
+  portraitSizes: '(max-width: 639px) 90vw, (max-width: 1023px) 540px, 580px',
+  portraitWidth: 1280,
+  portraitHeight: 720,
   portraitAlt: 'Portrait of Aayushi Kumar',
   academicBar: {
     status: 'Second-Year Undergraduate',
@@ -100,7 +105,7 @@ export const TECHNICAL_PROFILE_META = {
 
 export const EDUCATION_ENTRY: EducationEntryItem = {
   status: 'Second Year',
-  qualification: 'Bachelor of Technology',
+  qualification: 'Bachelor of Technology (B.Tech)',
   specialisation: 'Artificial Intelligence & Machine Learning',
 };
 
@@ -135,8 +140,6 @@ export const CONTACT_SECTION_META = {
   heading: "Let's Connect.",
   introduction:
     'Open to connecting around AI, machine learning, and software projects. Reach out directly via email or LinkedIn.',
-  primaryActionLabel: 'Send an Email',
-  emailHref: 'mailto:aayushikoomar@gmail.com',
 };
 
 export const CONTACT_CHANNELS: ContactChannelItem[] = [

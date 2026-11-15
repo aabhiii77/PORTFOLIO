@@ -76,6 +76,8 @@ export function ProjectVisual({
         <img
           src={imageUrl}
           alt={imageAlt ?? title}
+          width={800}
+          height={600}
           loading="lazy"
           decoding="async"
           referrerPolicy="no-referrer"

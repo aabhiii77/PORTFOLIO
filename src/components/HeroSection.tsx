@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState, type PointerEvent } from 'react';
+import { memo, useEffect, useRef, useState, type PointerEvent } from 'react';
 import { ArrowRight } from 'lucide-react';
 import { HERO_PROFILE } from '../data/portfolioData';
 
-export function HeroSection() {
+export const HeroSection = memo(function HeroSection() {
   const [imageFailed, setImageFailed] = useState(false);
   const showPortraitImage = Boolean(HERO_PROFILE.portraitUrl) && !imageFailed;
 
@@ -10,6 +10,7 @@ export function HeroSection() {
   const frameRef = useRef<HTMLDivElement>(null);
   const haloRef = useRef<HTMLDivElement>(null);
   const rafRef = useRef<number | null>(null);
+  const cachedRectRef = useRef<DOMRect | null>(null);
   const canHoverParallaxRef = useRef(false);
 
   useEffect(() => {
@@ -19,52 +20,71 @@ export function HeroSection() {
 
     const syncCapability = () => {
       canHoverParallaxRef.current = finePointer.matches && !reducedMotion.matches;
+      cachedRectRef.current = null;
       if (!canHoverParallaxRef.current) {
         if (frameRef.current) frameRef.current.style.transform = '';
         if (haloRef.current) haloRef.current.style.transform = '';
       }
     };
 
+    const invalidateRect = () => {
+      cachedRectRef.current = null;
+    };
+
     syncCapability();
     finePointer.addEventListener('change', syncCapability);
     reducedMotion.addEventListener('change', syncCapability);
+    window.addEventListener('resize', invalidateRect, { passive: true });
 
     return () => {
       finePointer.removeEventListener('change', syncCapability);
       reducedMotion.removeEventListener('change', syncCapability);
+      window.removeEventListener('resize', invalidateRect);
       if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
     };
   }, []);
 
-  const applyParallax = (xNorm: number, yNorm: number) => {
+  const applyParallax = (xNorm: number, yNorm: number, smoothReset: boolean) => {
     if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
     rafRef.current = requestAnimationFrame(() => {
+      const transition = smoothReset ? 'transform 450ms var(--ease-editorial)' : 'none';
       if (frameRef.current) {
+        frameRef.current.style.transition = transition;
         frameRef.current.style.transform = `translate3d(${(xNorm * 6).toFixed(2)}px, ${(yNorm * 5).toFixed(2)}px, 0)`;
       }
       if (haloRef.current) {
+        haloRef.current.style.transition = transition;
         haloRef.current.style.transform = `translate3d(${(-xNorm * 4).toFixed(2)}px, ${(-yNorm * 3).toFixed(2)}px, 0)`;
       }
       rafRef.current = null;
     });
   };
 
+  const handlePointerEnter = (event: PointerEvent<HTMLDivElement>) => {
+    if (!canHoverParallaxRef.current || event.pointerType !== 'mouse') return;
+    cachedRectRef.current = rightCanvasRef.current?.getBoundingClientRect() ?? null;
+  };
+
   const handlePointerMove = (event: PointerEvent<HTMLDivElement>) => {
     if (!canHoverParallaxRef.current || event.pointerType !== 'mouse') return;
-    const rect = rightCanvasRef.current?.getBoundingClientRect();
+    const rect =
+      cachedRectRef.current ?? rightCanvasRef.current?.getBoundingClientRect() ?? null;
     if (!rect || rect.width === 0 || rect.height === 0) return;
+    cachedRectRef.current = rect;
 
     const xNorm = ((event.clientX - rect.left) / rect.width - 0.5) * 2;
     const yNorm = ((event.clientY - rect.top) / rect.height - 0.5) * 2;
     applyParallax(
       Math.max(-1, Math.min(1, xNorm)),
       Math.max(-1, Math.min(1, yNorm)),
+      false,
     );
   };
 
   const handlePointerLeave = () => {
     if (!canHoverParallaxRef.current) return;
-    applyParallax(0, 0);
+    cachedRectRef.current = null;
+    applyParallax(0, 0, true);
   };
 
   return (
@@ -80,22 +100,19 @@ export function HeroSection() {
           <div className="min-w-0">
             <h1 className="font-display font-bold text-[var(--color-espresso-deep)] text-[clamp(2.75rem,8.4vw,6.85rem)] leading-[0.89] tracking-[-0.042em] break-words [overflow-wrap:anywhere] select-none">
               <span className="block overflow-hidden pb-1 -mb-1">
-                <span
-                  style={{ animationDelay: '40ms' }}
-                  className="hero-mask-line block"
-                >
+                <span className="hero-mask-line block">
                   {HERO_PROFILE.displayNameLine1}
                 </span>
               </span>
               <span className="block overflow-hidden pb-2 -mb-2">
                 <span
-                  style={{ animationDelay: '140ms' }}
+                  style={{ animationDelay: '70ms' }}
                   className="hero-mask-line inline-block"
                 >
                   {HERO_PROFILE.displayNameLine2}
                   <span
                     aria-hidden="true"
-                    style={{ animationDelay: '300ms' }}
+                    style={{ animationDelay: '180ms' }}
                     className="hero-geo-reveal inline-block ml-2 sm:ml-3 w-3 h-3 sm:w-4 sm:h-4 lg:w-[18px] lg:h-[18px] rounded-full bg-[var(--color-vermilion)] align-baseline"
                   />
                 </span>
@@ -103,7 +120,7 @@ export function HeroSection() {
             </h1>
 
             <p
-              style={{ animationDelay: '220ms' }}
+              style={{ animationDelay: '120ms' }}
               className="hero-reveal-up mt-5 sm:mt-6 font-display text-base sm:text-lg lg:text-[21px] font-semibold text-[var(--color-espresso)] tracking-[-0.015em] max-w-xl text-balance break-words"
             >
               {HERO_PROFILE.headline}
@@ -115,12 +132,12 @@ export function HeroSection() {
             <div className="relative flex items-center gap-4 sm:gap-6">
               <div
                 aria-hidden="true"
-                style={{ animationDelay: '240ms' }}
+                style={{ animationDelay: '140ms' }}
                 className="hero-slide-x -ml-4 sm:-ml-6 lg:-ml-10 w-7 h-14 sm:w-10 sm:h-20 lg:w-13 lg:h-26 rounded-r-full orange-panel-gradient shrink-0"
               />
 
               <div
-                style={{ animationDelay: '290ms' }}
+                style={{ animationDelay: '180ms' }}
                 className="hero-reveal-up min-w-0 pl-4 sm:pl-5 border-l-[1.5px] border-[var(--color-orange)] max-w-md"
               >
                 <p className="text-sm sm:text-[15px] leading-[1.65] text-[var(--color-espresso)] break-words">
@@ -132,7 +149,7 @@ export function HeroSection() {
             {/* Bottom Row: Primary & Secondary Actions + Balanced Vermilion Accent */}
             <div className="flex flex-wrap items-end justify-between gap-6 pt-1">
               <div
-                style={{ animationDelay: '360ms' }}
+                style={{ animationDelay: '230ms' }}
                 className="hero-reveal-up flex flex-wrap items-center gap-3 sm:gap-4"
               >
                 <a
@@ -155,7 +172,7 @@ export function HeroSection() {
 
               <div aria-hidden="true" className="hidden sm:block shrink-0">
                 <div
-                  style={{ animationDelay: '420ms' }}
+                  style={{ animationDelay: '280ms' }}
                   className="hero-geo-reveal w-14 h-14 lg:w-[68px] lg:h-[68px] rounded-full bg-[var(--color-vermilion)]"
                 />
               </div>
@@ -166,6 +183,7 @@ export function HeroSection() {
         {/* RIGHT COMPOSITION — Signature Upright Portrait & Editorial Geometric Layering */}
         <div
           ref={rightCanvasRef}
+          onPointerEnter={handlePointerEnter}
           onPointerMove={handlePointerMove}
           onPointerLeave={handlePointerLeave}
           className="min-w-0 flex flex-col border-t lg:border-t-0 lg:border-l border-[var(--border-hairline)]"
@@ -174,14 +192,13 @@ export function HeroSection() {
             {/* Asymmetric Matte Orange Architectural Block (Upper-Left) */}
             <div
               aria-hidden="true"
-              style={{ animationDelay: '120ms' }}
               className="hero-reveal-fade absolute top-0 left-0 w-[38%] sm:w-[40%] h-[54%] orange-panel-gradient pointer-events-none"
             />
 
             {/* Structural Espresso Grounding Block (Lower-Left) */}
             <div
               aria-hidden="true"
-              style={{ animationDelay: '180ms' }}
+              style={{ animationDelay: '60ms' }}
               className="hero-reveal-fade absolute bottom-0 left-0 w-[22%] h-[28%] bg-[var(--color-espresso)] espresso-texture pointer-events-none"
             />
 
@@ -195,21 +212,21 @@ export function HeroSection() {
             {/* Restrained Cobalt-Blue Quarter Circle (Lower-Right) */}
             <div
               aria-hidden="true"
-              style={{ animationDelay: '340ms' }}
+              style={{ animationDelay: '180ms' }}
               className="hero-geo-reveal absolute bottom-0 right-0 w-14 h-14 sm:w-[72px] sm:h-[72px] rounded-tl-full bg-[var(--color-cobalt)] pointer-events-none"
             />
 
-            {/* Soft Warm Ambient Halo Behind Portrait (Existing Palette Only) */}
+            {/* Soft Warm Ambient Halo Behind Portrait (Feathered Radial Gradient, Zero Blur Filter Cost) */}
             <div
               ref={haloRef}
               aria-hidden="true"
-              className="pointer-events-none absolute inset-0 flex items-center justify-center transition-transform duration-500 ease-[var(--ease-editorial)]"
+              className="pointer-events-none absolute inset-0 flex items-center justify-center"
             >
               <div
-                className="w-[78%] max-w-[540px] aspect-[16/9] rounded-full blur-2xl opacity-75"
+                className="w-[86%] max-w-[600px] aspect-[16/9] rounded-full opacity-80"
                 style={{
                   background:
-                    'radial-gradient(circle at 48% 50%, rgba(238, 109, 13, 0.14) 0%, rgba(245, 226, 206, 0.48) 52%, transparent 78%)',
+                    'radial-gradient(ellipse at 50% 50%, rgba(238, 109, 13, 0.14) 0%, rgba(245, 226, 206, 0.42) 45%, rgba(245, 226, 206, 0.12) 66%, transparent 82%)',
                 }}
               />
             </div>
@@ -217,24 +234,31 @@ export function HeroSection() {
             {/* Subtle Desktop Pointer Parallax Container */}
             <div
               ref={frameRef}
-              className="relative z-10 w-full flex items-center justify-center transition-transform duration-500 ease-[var(--ease-editorial)] will-change-transform"
+              className="relative z-10 w-full flex items-center justify-center"
             >
               {/* Centered Editorial Mat Frame Matched to Upright Portrait Proportions (16:9) */}
-              <div
-                style={{ animationDelay: '160ms' }}
-                className="group/portrait hero-portrait-clip w-full max-w-[460px] sm:max-w-[540px] lg:max-w-[580px] portrait-stone-surface border border-[var(--color-espresso)]/25 hover:border-[var(--color-espresso)]/40 ring-1 ring-inset ring-[var(--color-cream)]/70 shadow-[0_16px_40px_rgba(29,15,10,0.11)] hover:shadow-[0_24px_54px_rgba(29,15,10,0.15)] p-2.5 sm:p-3.5 transition-[transform,scale,box-shadow,border-color] duration-300 ease-[var(--ease-editorial)] hover:scale-[1.01]"
-              >
+              <div className="group/portrait hero-portrait-clip w-full max-w-[460px] sm:max-w-[540px] lg:max-w-[580px] portrait-stone-surface border border-[var(--color-espresso)]/25 hover:border-[var(--color-espresso)]/40 ring-1 ring-inset ring-[var(--color-cream)]/70 shadow-[0_16px_40px_rgba(29,15,10,0.11)] hover:shadow-[0_24px_54px_rgba(29,15,10,0.15)] p-2.5 sm:p-3.5 transition-[transform,scale,box-shadow,border-color] duration-300 ease-[var(--ease-editorial)] hover:scale-[1.01]">
                 <div className="relative w-full aspect-[16/9] border border-[var(--color-espresso)]/18 bg-[var(--color-cream)] flex items-center justify-center overflow-hidden">
                   {showPortraitImage ? (
                     <>
-                      <img
-                        src={HERO_PROFILE.portraitUrl}
-                        alt={HERO_PROFILE.portraitAlt}
-                        loading="eager"
-                        decoding="async"
-                        onError={() => setImageFailed(true)}
-                        className="block w-full h-full object-contain object-center transition-[transform,scale] duration-350 ease-[var(--ease-editorial)] group-hover/portrait:scale-[1.015]"
-                      />
+                      <picture className="block w-full h-full">
+                        <source
+                          type="image/webp"
+                          srcSet={HERO_PROFILE.portraitSrcSet}
+                          sizes={HERO_PROFILE.portraitSizes}
+                        />
+                        <img
+                          src={HERO_PROFILE.portraitUrl}
+                          alt={HERO_PROFILE.portraitAlt}
+                          width={HERO_PROFILE.portraitWidth}
+                          height={HERO_PROFILE.portraitHeight}
+                          loading="eager"
+                          decoding="async"
+                          fetchPriority="high"
+                          onError={() => setImageFailed(true)}
+                          className="block w-full h-full object-contain object-center transition-[transform,scale] duration-350 ease-[var(--ease-editorial)] group-hover/portrait:scale-[1.015]"
+                        />
+                      </picture>
 
                       {/* Initial Controlled Warm Light Sweep (Passes once softly, never obscures face) */}
                       <div
@@ -271,7 +295,7 @@ export function HeroSection() {
           {/* Stationary Bottom Split Architecture — Espresso Identity Bar + Vermilion Accent */}
           <div className="grid grid-cols-[1fr_80px] sm:grid-cols-[1fr_132px] min-h-[104px] sm:min-h-[124px] border-t border-[var(--border-hairline)]">
             <div
-              style={{ animationDelay: '260ms' }}
+              style={{ animationDelay: '140ms' }}
               className="hero-reveal-fade min-w-0 bg-[var(--color-espresso)] espresso-texture text-[var(--color-cream)] px-4 sm:px-7 py-5 flex flex-col justify-center"
             >
               <p className="font-display text-sm sm:text-base font-bold tracking-[0.06em] uppercase break-words">
@@ -284,7 +308,7 @@ export function HeroSection() {
 
             <div
               aria-hidden="true"
-              style={{ animationDelay: '320ms' }}
+              style={{ animationDelay: '180ms' }}
               className="hero-reveal-fade bg-[var(--color-vermilion)]"
             />
           </div>
@@ -292,4 +316,4 @@ export function HeroSection() {
       </div>
     </section>
   );
-}
+});

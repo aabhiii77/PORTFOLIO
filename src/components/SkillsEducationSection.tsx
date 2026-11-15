@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import {
   EDUCATION_ENTRY,
   SKILL_GROUPS,
@@ -8,7 +9,7 @@ import { Reveal } from './Reveal';
 import { EducationBlock } from './skills/EducationBlock';
 import { SkillsList } from './skills/SkillsList';
 
-export function SkillsEducationSection() {
+export const SkillsEducationSection = memo(function SkillsEducationSection() {
   const { ref, revealed } = useRevealOnScroll<HTMLElement>();
 
   return (
@@ -59,4 +60,4 @@ export function SkillsEducationSection() {
       </div>
     </section>
   );
-}
+});

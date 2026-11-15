@@ -17,8 +17,16 @@ class EmailConfigurationError(RuntimeError):
     """Raised when required SMTP configuration is missing."""
 
 
+class EmailAuthenticationError(RuntimeError):
+    """Raised when SMTP rejects credentials."""
+
+
+class EmailConnectionError(RuntimeError):
+    """Raised when connecting to or timing out against the SMTP server."""
+
+
 class EmailDeliveryError(RuntimeError):
-    """Raised when SMTP fails to authenticate, connect, or send."""
+    """Raised for other SMTP delivery failures."""
 
 
 def _safe_header_text(value: str) -> str:
@@ -96,14 +104,29 @@ def send_contact_email(
     payload: ContactSubmissionRequest,
     settings: Settings,
     smtp_factory: Callable[..., smtplib.SMTP] = smtplib.SMTP,
+    request_id: str = "unknown",
 ) -> None:
-    if not settings.is_smtp_configured():
+    missing = settings.missing_smtp_env_vars()
+    if missing:
+        logger.warning(
+            "req_id=%s event=smtp_config_missing missing=%s",
+            request_id,
+            ",".join(missing),
+        )
         raise EmailConfigurationError(
-            "Contact delivery is not configured on the server yet. Please use the direct email link instead."
+            "Email delivery is not configured on the server yet. Please use the direct email link instead."
         )
 
     email_message = build_contact_email(payload, settings)
     tls_context = ssl.create_default_context()
+
+    logger.info(
+        "req_id=%s event=smtp_connecting host=%s port=%s timeout=%s",
+        request_id,
+        settings.smtp_host,
+        settings.smtp_port,
+        settings.smtp_timeout_seconds,
+    )
 
     try:
         with smtp_factory(
@@ -115,14 +138,33 @@ def send_contact_email(
             smtp.starttls(context=tls_context)
             smtp.ehlo()
             smtp.login(settings.smtp_username, settings.smtp_app_password)
+            logger.info("req_id=%s event=smtp_auth_ok", request_id)
             smtp.send_message(email_message)
+            logger.info("req_id=%s event=smtp_delivery_accepted", request_id)
     except smtplib.SMTPAuthenticationError as exc:
-        logger.warning("SMTP authentication failed (%s)", exc.__class__.__name__)
-        raise EmailDeliveryError(
-            "Unable to authenticate with the email service right now. Please use the direct email link instead."
+        logger.warning(
+            "req_id=%s event=smtp_auth_failed exc=%s",
+            request_id,
+            exc.__class__.__name__,
+        )
+        raise EmailAuthenticationError(
+            "Unable to authenticate with the email delivery service right now. Please use the direct email link instead."
         ) from exc
-    except (smtplib.SMTPException, TimeoutError, OSError) as exc:
-        logger.warning("SMTP delivery failed (%s)", exc.__class__.__name__)
+    except (smtplib.SMTPConnectError, smtplib.SMTPServerDisconnected, TimeoutError, OSError) as exc:
+        logger.warning(
+            "req_id=%s event=smtp_connection_failed exc=%s",
+            request_id,
+            exc.__class__.__name__,
+        )
+        raise EmailConnectionError(
+            "Could not connect to the email delivery server in time. Please try again later or email directly."
+        ) from exc
+    except smtplib.SMTPException as exc:
+        logger.warning(
+            "req_id=%s event=smtp_delivery_failed exc=%s",
+            request_id,
+            exc.__class__.__name__,
+        )
         raise EmailDeliveryError(
             "Unable to deliver your message right now. Please try again later or email directly."
         ) from exc

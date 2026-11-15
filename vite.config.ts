@@ -1,15 +1,26 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
-import path from 'path';
-import {defineConfig} from 'vite';
+import path from 'node:path';
+import { defineConfig } from 'vite';
 
-export default defineConfig(() => {
+export default defineConfig(({ command }) => {
+  const isBuild = command === 'build';
+
   return {
     plugins: [react(), tailwindcss()],
+    define: isBuild
+      ? {
+          'process.env.NODE_ENV': JSON.stringify('production'),
+        }
+      : undefined,
     resolve: {
       alias: {
-        '@': path.resolve(__dirname, '.'),
+        '@': path.resolve(import.meta.dirname, '.'),
       },
+    },
+    build: {
+      target: 'es2020',
+      cssMinify: true,
     },
     server: {
       // HMR is disabled in AI Studio via DISABLE_HMR env var.

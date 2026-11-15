@@ -9,7 +9,18 @@ import express, { type Request, type Response } from 'express';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const PORT = Number(process.env.PORT || 3000);
+function resolveListenPort(): number {
+  const portFlagIndex = process.argv.indexOf('--port');
+  if (portFlagIndex !== -1 && process.argv[portFlagIndex + 1]) {
+    const parsed = Number(process.argv[portFlagIndex + 1]);
+    if (Number.isFinite(parsed) && parsed > 0) return parsed;
+  }
+  const envPort = Number(process.env.PORT);
+  if (Number.isFinite(envPort) && envPort > 0) return envPort;
+  return 3000;
+}
+
+const PORT = resolveListenPort();
 const USE_VITE_DEV = process.env.VITE_DEV === 'true';
 
 function findAvailablePort(): Promise<number> {
@@ -88,13 +99,13 @@ function startPythonProcess(pythonBin: string, port: number): ChildProcess {
     [
       '-m',
       'uvicorn',
-      'api.index:app',
+      'main:app',
       '--host',
       '127.0.0.1',
       '--port',
       String(port),
       '--log-level',
-      'warning',
+      'info',
     ],
     {
       cwd: __dirname,
@@ -139,7 +150,7 @@ function initPythonBackend(): PythonBackendState {
       const depsOk = await hasPythonFastApiDeps(pythonBin);
       if (!depsOk) {
         state.errorReason =
-          'Python FastAPI backend dependencies are not installed in this Node runtime.';
+          'Python FastAPI dependencies are not installed in this Node runtime.';
         console.warn(`[python-api] ${state.errorReason}`);
         return;
       }
@@ -184,16 +195,21 @@ function createApiProxy(pythonState: PythonBackendState) {
     if (pythonState.port === null) {
       if (req.path === '/health') {
         res.status(503).json({
+          success: false,
           status: 'unavailable',
           service: 'portfolio-contact-api',
           email_configured: false,
+          code: 'PYTHON_RUNTIME_UNAVAILABLE',
+          message: 'Python FastAPI backend is not installed in this runtime environment.',
         });
         return;
       }
 
       res.status(503).json({
-        detail:
-          'Contact form backend is unavailable in this runtime environment. Please use the direct email link instead.',
+        success: false,
+        code: 'PYTHON_RUNTIME_UNAVAILABLE',
+        message:
+          'Contact form backend is unavailable in this Node-only runtime. Deploy on Vercel or a Python-enabled container, or email directly.',
       });
       return;
     }
@@ -226,7 +242,9 @@ function createApiProxy(pythonState: PythonBackendState) {
     proxyReq.on('error', () => {
       if (!res.headersSent) {
         res.status(502).json({
-          detail: 'Python contact service is temporarily unavailable. Please email directly.',
+          success: false,
+          code: 'PROXY_UPSTREAM_ERROR',
+          message: 'Python contact service is temporarily unavailable. Please email directly.',
         });
       }
     });
@@ -264,7 +282,11 @@ async function bootstrap() {
 
   if (shouldServeStatic) {
     app.use(express.static(distDir));
-    app.get('*', (_req, res) => {
+    app.get('*', (req, res, next) => {
+      if (req.path === '/api' || req.path.startsWith('/api/')) {
+        next();
+        return;
+      }
       res.sendFile(distIndex);
     });
   } else {

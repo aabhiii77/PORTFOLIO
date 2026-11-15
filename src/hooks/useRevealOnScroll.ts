@@ -8,7 +8,7 @@ interface UseRevealOptions {
 export function useRevealOnScroll<T extends HTMLElement = HTMLDivElement>(
   options: UseRevealOptions = {},
 ) {
-  const { threshold = 0.1, rootMargin = '0px 0px -36px 0px' } = options;
+  const { threshold = 0.08, rootMargin = '0px 0px -24px 0px' } = options;
   const ref = useRef<T>(null);
   const [revealed, setRevealed] = useState<boolean>(() => {
     if (typeof window === 'undefined') return true;
@@ -21,12 +21,6 @@ export function useRevealOnScroll<T extends HTMLElement = HTMLDivElement>(
     const node = ref.current;
     if (!node) return;
 
-    const rect = node.getBoundingClientRect();
-    if (rect.top < window.innerHeight * 0.96 && rect.bottom > 0) {
-      setRevealed(true);
-      return;
-    }
-
     if (typeof IntersectionObserver === 'undefined') {
       setRevealed(true);
       return;
@@ -35,7 +29,7 @@ export function useRevealOnScroll<T extends HTMLElement = HTMLDivElement>(
     const observer = new IntersectionObserver(
       (entries) => {
         for (const entry of entries) {
-          if (entry.isIntersecting) {
+          if (entry.isIntersecting || entry.boundingClientRect.top < window.innerHeight * 0.96) {
             setRevealed(true);
             observer.disconnect();
             break;

@@ -5,10 +5,11 @@ from typing import Any
 
 from fastapi.testclient import TestClient
 
-from api.config import Settings
-from api.index import create_app
-from api.mailer import build_contact_email
-from api.schemas import ContactSubmissionRequest
+from main import create_app
+from backend.config import Settings
+from backend.mailer import build_contact_email
+from backend.rate_limit import SlidingWindowRateLimiter
+from backend.schemas import ContactSubmissionRequest
 
 
 def _configured_settings() -> Settings:
@@ -88,12 +89,18 @@ def test_health_endpoint_when_configured() -> None:
     assert res.status_code == 200
     body = res.json()
     assert body == {
+        "success": True,
         "status": "ok",
         "service": "portfolio-contact-api",
         "email_configured": True,
+        "missing_env_vars": [],
     }
     assert "test-app-password-secret" not in res.text
     assert "aayushikoomar@gmail.com" not in res.text
+
+    root_res = client.get("/")
+    assert root_res.status_code == 200
+    assert root_res.json() == body
 
 
 def test_health_endpoint_when_unconfigured() -> None:
@@ -101,7 +108,10 @@ def test_health_endpoint_when_unconfigured() -> None:
     client = TestClient(app)
     res = client.get("/api/health")
     assert res.status_code == 200
-    assert res.json()["email_configured"] is False
+    body = res.json()
+    assert body["success"] is True
+    assert body["email_configured"] is False
+    assert body["missing_env_vars"] == ["SMTP_APP_PASSWORD"]
 
 
 def test_successful_contact_submission_with_mocked_smtp() -> None:
@@ -123,7 +133,10 @@ def test_successful_contact_submission_with_mocked_smtp() -> None:
     )
 
     assert res.status_code == 200
-    assert res.json()["status"] == "sent"
+    body = res.json()
+    assert body["success"] is True
+    assert body["message"] == "Your message has been sent successfully."
+    assert len(body["request_id"]) > 0
     assert len(sent) == 1
 
     msg = sent[0]
@@ -157,7 +170,10 @@ def test_missing_name_rejected() -> None:
         },
     )
     assert res.status_code == 422
-    assert "name" in res.json()["field_errors"]
+    body = res.json()
+    assert body["success"] is False
+    assert body["code"] == "VALIDATION_ERROR"
+    assert "name" in body["field_errors"]
 
 
 def test_invalid_email_rejected() -> None:
@@ -174,7 +190,10 @@ def test_invalid_email_rejected() -> None:
         },
     )
     assert res.status_code == 422
-    assert "email" in res.json()["field_errors"]
+    body = res.json()
+    assert body["success"] is False
+    assert body["code"] == "VALIDATION_ERROR"
+    assert "email" in body["field_errors"]
 
 
 def test_missing_subject_rejected() -> None:
@@ -191,7 +210,9 @@ def test_missing_subject_rejected() -> None:
         },
     )
     assert res.status_code == 422
-    assert "subject" in res.json()["field_errors"]
+    body = res.json()
+    assert body["success"] is False
+    assert "subject" in body["field_errors"]
 
 
 def test_empty_message_rejected() -> None:
@@ -208,7 +229,9 @@ def test_empty_message_rejected() -> None:
         },
     )
     assert res.status_code == 422
-    assert "message" in res.json()["field_errors"]
+    body = res.json()
+    assert body["success"] is False
+    assert "message" in body["field_errors"]
 
 
 def test_excessively_long_message_rejected() -> None:
@@ -246,6 +269,9 @@ def test_filled_honeypot_rejected_without_sending_email() -> None:
         },
     )
     assert res.status_code == 400
+    body = res.json()
+    assert body["success"] is False
+    assert body["code"] == "SPAM_REJECTED"
     assert sent == []
     assert calls == []
 
@@ -272,6 +298,9 @@ def test_smtp_authentication_failure_returns_safe_error() -> None:
         },
     )
     assert res.status_code == 502
+    body = res.json()
+    assert body["success"] is False
+    assert body["code"] == "SMTP_AUTH_FAILED"
     assert "test-app-password-secret" not in res.text
     assert "5.7.8" not in res.text
     assert sent == []
@@ -299,6 +328,9 @@ def test_smtp_connection_failure_returns_safe_error() -> None:
         },
     )
     assert res.status_code == 502
+    body = res.json()
+    assert body["success"] is False
+    assert body["code"] == "SMTP_CONNECTION_FAILED"
     assert "smtp.gmail.com" not in res.text
     assert sent == []
 
@@ -321,8 +353,37 @@ def test_missing_env_configuration_returns_honest_503() -> None:
         },
     )
     assert res.status_code == 503
-    assert "not configured" in res.json()["detail"].lower()
+    body = res.json()
+    assert body["success"] is False
+    assert body["code"] == "SMTP_NOT_CONFIGURED"
     assert calls == []
+
+
+def test_rate_limiting_blocks_excessive_requests() -> None:
+    sent: list[EmailMessage] = []
+    calls: list[tuple[str, Any]] = []
+    mock_smtp = RecordingMockSMTP(sent_messages=sent, calls=calls)
+    limiter = SlidingWindowRateLimiter(max_requests=2, window_seconds=600)
+    app = create_app(
+        settings_provider=_configured_settings,
+        smtp_factory=mock_smtp,
+        rate_limiter=limiter,
+    )
+    client = TestClient(app)
+
+    payload = {
+        "name": "Visitor Name",
+        "email": "visitor@example.com",
+        "subject": "Hello",
+        "message": "Valid length message here for testing rate limiting.",
+        "website": "",
+    }
+    assert client.post("/api/contact", json=payload).status_code == 200
+    assert client.post("/api/contact", json=payload).status_code == 200
+    third = client.post("/api/contact", json=payload)
+    assert third.status_code == 429
+    assert third.json()["code"] == "RATE_LIMITED"
+    assert "retry-after" in third.headers
 
 
 def test_header_injection_and_html_escaping() -> None:

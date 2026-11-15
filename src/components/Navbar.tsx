@@ -1,18 +1,53 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Menu, X } from 'lucide-react';
-import { MotionConfig, motion } from 'motion/react';
 import { NAV_ITEMS, type SectionId } from '../data/portfolioData';
+import { useActiveSection } from '../hooks/useActiveSection';
 
-interface NavbarProps {
-  activeSection: SectionId;
-  onNavigate?: (id: SectionId) => void;
+const SECTION_IDS: SectionId[] = NAV_ITEMS.map((item) => item.id);
+
+interface PillGeometry {
+  left: number;
+  width: number;
+  ready: boolean;
 }
 
-export function Navbar({ activeSection, onNavigate }: NavbarProps) {
+export function Navbar() {
+  const { activeSection, navigateToSection } = useActiveSection(SECTION_IDS);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [pill, setPill] = useState<PillGeometry>({ left: 0, width: 0, ready: false });
+
   const toggleBtnRef = useRef<HTMLButtonElement>(null);
   const firstMobileLinkRef = useRef<HTMLAnchorElement>(null);
   const navContainerRef = useRef<HTMLElement>(null);
+  const desktopNavRef = useRef<HTMLElement>(null);
+  const linkRefs = useRef<Partial<Record<SectionId, HTMLAnchorElement | null>>>({});
+
+  const measureActivePill = () => {
+    const navEl = desktopNavRef.current;
+    const activeEl = linkRefs.current[activeSection];
+    if (!navEl || !activeEl || navEl.offsetParent === null) return;
+
+    const nextLeft = activeEl.offsetLeft;
+    const nextWidth = activeEl.offsetWidth;
+    setPill((prev) =>
+      prev.ready && prev.left === nextLeft && prev.width === nextWidth
+        ? prev
+        : { left: nextLeft, width: nextWidth, ready: true },
+    );
+  };
+
+  useLayoutEffect(() => {
+    measureActivePill();
+  }, [activeSection]);
+
+  useEffect(() => {
+    const navEl = desktopNavRef.current;
+    if (!navEl || typeof ResizeObserver === 'undefined') return;
+
+    const ro = new ResizeObserver(() => measureActivePill());
+    ro.observe(navEl);
+    return () => ro.disconnect();
+  }, [activeSection]);
 
   useEffect(() => {
     if (!mobileOpen) return;
@@ -60,54 +95,55 @@ export function Navbar({ activeSection, onNavigate }: NavbarProps) {
   }, [mobileOpen]);
 
   const handleLinkClick = (id: SectionId) => {
-    onNavigate?.(id);
+    navigateToSection(id);
     setMobileOpen(false);
   };
 
   return (
     <header
       ref={navContainerRef}
-      className="sticky top-0 z-50 w-full nav-surface-texture backdrop-blur-[2px] border-b border-[var(--border-hairline)]"
+      className="sticky top-0 z-50 w-full nav-surface-texture border-b border-[var(--border-hairline)]"
     >
       <div className="max-w-[1360px] mx-auto px-4 sm:px-6 lg:px-10 h-14 sm:h-[68px] flex items-center justify-end">
-        {/* Desktop & Tablet Top-Right Primary Navigation with Fluid Deep-Blue Active Indicator */}
-        <MotionConfig reducedMotion="user">
-          <nav
-            aria-label="Primary navigation"
-            className="hidden md:inline-flex items-center gap-0.5 lg:gap-1 p-1 rounded-full nav-surface-texture border border-[var(--border-hairline)] shadow-[0_2px_10px_rgba(29,15,10,0.05)]"
-          >
-            {NAV_ITEMS.map((item) => {
-              const isActive = activeSection === item.id;
-              return (
-                <a
-                  key={item.id}
-                  href={item.href}
-                  onClick={() => onNavigate?.(item.id)}
-                  aria-current={isActive ? 'location' : undefined}
-                  className={`relative px-3.5 lg:px-4 py-2 min-h-[38px] inline-flex items-center rounded-full font-display text-xs lg:text-[13px] tracking-[0.1em] uppercase whitespace-nowrap shrink-0 transition-[color,background-color,transform,translate,scale] duration-250 ease-[var(--ease-editorial)] active:scale-[0.98] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-blue-deep)] ${
-                    isActive
-                      ? 'text-[var(--color-cream)] font-semibold'
-                      : 'text-[var(--color-espresso)] font-medium hover:bg-[var(--color-cream-tonal)]/85 hover:text-[var(--color-espresso-deep)] hover:-translate-y-[1px]'
-                  }`}
-                >
-                  {isActive ? (
-                    <motion.span
-                      layoutId="active-nav-indicator"
-                      aria-hidden="true"
-                      transition={{
-                        type: 'tween',
-                        duration: 0.52,
-                        ease: [0.22, 1, 0.36, 1],
-                      }}
-                      className="absolute inset-0 rounded-full bg-[var(--color-blue-deep)] shadow-[0_2px_10px_rgba(12,34,73,0.24)]"
-                    />
-                  ) : null}
-                  <span className="relative z-10">{item.label}</span>
-                </a>
-              );
-            })}
-          </nav>
-        </MotionConfig>
+        {/* Desktop & Tablet Top-Right Primary Navigation with GPU-Composited Deep-Blue Indicator */}
+        <nav
+          ref={desktopNavRef}
+          aria-label="Primary navigation"
+          className="relative hidden md:inline-flex items-center gap-0.5 lg:gap-1 p-1 rounded-full nav-surface-texture border border-[var(--border-hairline)] shadow-[0_2px_10px_rgba(29,15,10,0.05)]"
+        >
+          {pill.ready && (
+            <span
+              aria-hidden="true"
+              style={{
+                width: `${pill.width}px`,
+                transform: `translate3d(${pill.left}px, 0, 0)`,
+              }}
+              className="pointer-events-none absolute top-1 bottom-1 left-0 rounded-full bg-[var(--color-blue-deep)] shadow-[0_2px_10px_rgba(12,34,73,0.24)] transition-[transform,width] duration-500 ease-[var(--ease-editorial)]"
+            />
+          )}
+
+          {NAV_ITEMS.map((item) => {
+            const isActive = activeSection === item.id;
+            return (
+              <a
+                key={item.id}
+                ref={(el) => {
+                  linkRefs.current[item.id] = el;
+                }}
+                href={item.href}
+                onClick={() => navigateToSection(item.id)}
+                aria-current={isActive ? 'location' : undefined}
+                className={`relative z-10 px-3.5 lg:px-4 py-2 min-h-[38px] inline-flex items-center rounded-full font-display text-xs lg:text-[13px] tracking-[0.1em] uppercase whitespace-nowrap shrink-0 transition-[color,background-color,transform,translate,scale] duration-250 ease-[var(--ease-editorial)] active:scale-[0.98] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-blue-deep)] ${
+                  isActive
+                    ? `${!pill.ready ? 'bg-[var(--color-blue-deep)] ' : ''}text-[var(--color-cream)] font-semibold`
+                    : 'text-[var(--color-espresso)] font-medium hover:bg-[var(--color-cream-tonal)]/85 hover:text-[var(--color-espresso-deep)] hover:-translate-y-[1px]'
+                }`}
+              >
+                <span>{item.label}</span>
+              </a>
+            );
+          })}
+        </nav>
 
         {/* Mobile Hamburger Toggle */}
         <button

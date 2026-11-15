@@ -95,12 +95,23 @@ class ContactSubmissionRequest(BaseModel):
         return value
 
 
-class ContactSubmissionResponse(BaseModel):
-    status: str
+class ContactSuccessResponse(BaseModel):
+    success: bool = True
     message: str
+    request_id: str
+
+
+class ContactErrorResponse(BaseModel):
+    success: bool = False
+    message: str
+    code: str
+    request_id: str
+    field_errors: dict[str, str] | None = None
 
 
 class HealthResponse(BaseModel):
+    success: bool = True
     status: str
     service: str
     email_configured: bool
+    missing_env_vars: list[str]

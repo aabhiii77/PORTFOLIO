@@ -1,7 +1,8 @@
+import { memo } from 'react';
 import { FOOTER_META, NAV_ITEMS } from '../data/portfolioData';
 import { BackToTop } from './footer/BackToTop';
 
-export function PortfolioFooter() {
+export const PortfolioFooter = memo(function PortfolioFooter() {
   return (
     <footer className="border-t border-[var(--border-hairline)] overflow-hidden">
       {/* Upper Geometric Closing Band inspired by Master Reference */}
@@ -57,4 +58,4 @@ export function PortfolioFooter() {
       </div>
     </footer>
   );
-}
+});

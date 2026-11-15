@@ -66,14 +66,22 @@ class Settings:
     smtp_timeout_seconds: float
     allowed_origins: tuple[str, ...]
 
+    def missing_smtp_env_vars(self) -> list[str]:
+        missing: list[str] = []
+        if not self.smtp_host:
+            missing.append("SMTP_HOST")
+        if self.smtp_port <= 0:
+            missing.append("SMTP_PORT")
+        if not self.smtp_username:
+            missing.append("SMTP_USERNAME")
+        if not self.smtp_app_password:
+            missing.append("SMTP_APP_PASSWORD")
+        if not self.contact_recipient_email:
+            missing.append("CONTACT_RECIPIENT_EMAIL")
+        return missing
+
     def is_smtp_configured(self) -> bool:
-        return bool(
-            self.smtp_host
-            and self.smtp_port > 0
-            and self.smtp_username
-            and self.smtp_app_password
-            and self.contact_recipient_email
-        )
+        return len(self.missing_smtp_env_vars()) == 0
 
 
 def load_settings_from_env() -> Settings:
