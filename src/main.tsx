@@ -3,6 +3,20 @@ import App from './App.tsx';
 import { ErrorBoundary } from './components/ErrorBoundary.tsx';
 import './index.css';
 
+const prefersReducedMotion =
+  typeof window !== 'undefined' &&
+  typeof window.matchMedia === 'function' &&
+  window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+if (
+  typeof document !== 'undefined' &&
+  typeof window !== 'undefined' &&
+  typeof window.requestAnimationFrame === 'function' &&
+  !prefersReducedMotion
+) {
+  document.documentElement.classList.add('js-reveal');
+}
+
 const rootElement = document.getElementById('root');
 
 if (!rootElement) {

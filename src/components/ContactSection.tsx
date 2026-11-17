@@ -1,6 +1,8 @@
 import { lazy, memo, Suspense, useEffect } from 'react';
 import { CONTACT_CHANNELS } from '../data/portfolioData';
 import { useRevealOnScroll } from '../hooks/useRevealOnScroll';
+import { PORTFOLIO_DIRECT_MAILTO, PORTFOLIO_RECIPIENT_EMAIL } from '../utils/contactApi';
+import { ErrorBoundary } from './ErrorBoundary';
 import { ContactIntroduction } from './contact/ContactIntroduction';
 import { SocialLink } from './contact/SocialLink';
 
@@ -15,6 +17,30 @@ function ContactFormPlaceholder() {
       aria-hidden="true"
       className="border border-[var(--border-hairline)] bg-[var(--color-cream)] p-6 sm:p-8 min-h-[452px] shadow-[0_8px_24px_rgba(29,15,10,0.03)]"
     />
+  );
+}
+
+function ContactFormFallback() {
+  return (
+    <div
+      role="region"
+      aria-label="Direct contact fallback"
+      className="border border-[var(--border-hairline)] bg-[var(--color-cream)] p-6 sm:p-8 min-h-[260px] flex flex-col justify-center gap-4 shadow-[0_8px_24px_rgba(29,15,10,0.03)]"
+    >
+      <p className="font-display text-xs font-semibold tracking-[0.1em] uppercase text-[var(--color-orange)]">
+        Direct Email Available
+      </p>
+      <p className="text-sm leading-[1.6] text-[var(--color-espresso)]">
+        The interactive form could not load right now. Reach out directly at{' '}
+        <a
+          href={PORTFOLIO_DIRECT_MAILTO}
+          className="font-semibold underline underline-offset-4 text-[var(--color-espresso-deep)] hover:text-[var(--color-orange)]"
+        >
+          {PORTFOLIO_RECIPIENT_EMAIL}
+        </a>
+        .
+      </p>
+    </div>
   );
 }
 
@@ -72,9 +98,11 @@ export const ContactSection = memo(function ContactSection() {
           </div>
 
           <div className="min-w-0 lg:pt-1">
-            <Suspense fallback={<ContactFormPlaceholder />}>
-              <LazyContactForm revealed={revealed} />
-            </Suspense>
+            <ErrorBoundary fallback={<ContactFormFallback />}>
+              <Suspense fallback={<ContactFormPlaceholder />}>
+                <LazyContactForm revealed={revealed} />
+              </Suspense>
+            </ErrorBoundary>
           </div>
         </div>
       </div>

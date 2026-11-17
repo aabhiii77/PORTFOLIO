@@ -56,22 +56,27 @@ export function useActiveSection(sectionIds: SectionId[]) {
       }
     };
 
-    const observer = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          const id = entry.target.id as SectionId;
-          visibilityMap.set(id, entry.isIntersecting ? entry.intersectionRatio : 0);
-        });
-        pickMostVisible();
-      },
-      {
-        root: null,
-        rootMargin: '-18% 0px -35% 0px',
-        threshold: [0, 0.15, 0.4, 0.7],
-      },
-    );
+    const observer =
+      typeof IntersectionObserver !== 'undefined'
+        ? new IntersectionObserver(
+            (entries) => {
+              entries.forEach((entry) => {
+                const id = entry.target.id as SectionId;
+                visibilityMap.set(id, entry.isIntersecting ? entry.intersectionRatio : 0);
+              });
+              pickMostVisible();
+            },
+            {
+              root: null,
+              rootMargin: '-18% 0px -35% 0px',
+              threshold: [0, 0.15, 0.4, 0.7],
+            },
+          )
+        : null;
 
-    elements.forEach((el) => observer.observe(el));
+    if (observer) {
+      elements.forEach((el) => observer.observe(el));
+    }
 
     let scrollRafId: number | null = null;
     const handleScroll = () => {
@@ -83,13 +88,33 @@ export function useActiveSection(sectionIds: SectionId[]) {
         if (window.scrollY < 48) {
           const firstId = sectionIds[0] ?? 'home';
           setActiveSection((prev) => (prev === firstId ? prev : firstId));
-        } else if (
+          return;
+        }
+
+        if (
           window.innerHeight + window.scrollY >=
           document.documentElement.scrollHeight - 24
         ) {
           const lastId = sectionIds[sectionIds.length - 1];
           if (lastId) {
             setActiveSection((prev) => (prev === lastId ? prev : lastId));
+          }
+          return;
+        }
+
+        if (!observer) {
+          const anchorY = window.innerHeight * 0.35;
+          let matchedId: SectionId | null = null;
+          for (const el of elements) {
+            const rect = el.getBoundingClientRect();
+            if (rect.top <= anchorY && rect.bottom >= anchorY) {
+              matchedId = el.id as SectionId;
+              break;
+            }
+          }
+          if (matchedId) {
+            const nextId = matchedId;
+            setActiveSection((prev) => (prev === nextId ? prev : nextId));
           }
         }
       });
@@ -107,7 +132,7 @@ export function useActiveSection(sectionIds: SectionId[]) {
     window.addEventListener('hashchange', handleHashChange);
 
     return () => {
-      observer.disconnect();
+      observer?.disconnect();
       if (scrollRafId !== null) cancelAnimationFrame(scrollRafId);
       window.removeEventListener('scroll', handleScroll);
       window.removeEventListener('hashchange', handleHashChange);

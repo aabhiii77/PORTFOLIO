@@ -14,7 +14,7 @@ export const HeroSection = memo(function HeroSection() {
   const canHoverParallaxRef = useRef(false);
 
   useEffect(() => {
-    if (typeof window === 'undefined') return;
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
     const finePointer = window.matchMedia('(hover: hover) and (pointer: fine)');
     const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
 
@@ -32,13 +32,13 @@ export const HeroSection = memo(function HeroSection() {
     };
 
     syncCapability();
-    finePointer.addEventListener('change', syncCapability);
-    reducedMotion.addEventListener('change', syncCapability);
+    finePointer.addEventListener?.('change', syncCapability);
+    reducedMotion.addEventListener?.('change', syncCapability);
     window.addEventListener('resize', invalidateRect, { passive: true });
 
     return () => {
-      finePointer.removeEventListener('change', syncCapability);
-      reducedMotion.removeEventListener('change', syncCapability);
+      finePointer.removeEventListener?.('change', syncCapability);
+      reducedMotion.removeEventListener?.('change', syncCapability);
       window.removeEventListener('resize', invalidateRect);
       if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
     };
